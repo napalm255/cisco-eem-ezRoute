@@ -1,0 +1,49 @@
+no event manager applet ezRouteAdd
+event manager applet ezRouteAdd 
+ event routing network 172.28.254.0/23 type add protocol static ge 23
+ action 100 cli command "enable"
+ action 105 cli command "show ip route static | include $_routing_network"
+ action 110 regexp "via.([0-9.]+)" "$_cli_result" initMatch peerIP
+ action 115 cli command "show crypto session remote $peerIP | include Username"
+ action 120 regexp "Username:.(.*)(\r\n.*)" "$_cli_result" initMatch peerUser
+ action 125 cli command "show crypto isakmp sa | include $peerIP"
+ action 130 regexp "[0-9.]+" "$_cli_result" ispConnectedIP
+ action 135 regexp "[0-9]+.[0-9]+.[0-9]+" "$ispConnectedIP" ispSubnet
+ action 140 regexp "[0-9]+.[0-9]+.[0-9]+" "$ispBalticoreGW" ispBalticoreSubnet
+ action 145 regexp "[0-9]+.[0-9]+.[0-9]+" "$ispVerizonGW" ispVerizonSubnet
+ action 150 if $ispSubnet eq $ispBalticoreSubnet
+ action 155  set ispRoute "$ispBalticoreGW"
+ action 160 end
+ action 165 if $ispSubnet eq $ispVerizonSubnet
+ action 170  set ispRoute "$ispVerizonGW"
+ action 175 end
+ action 180 cli command "show running-config | include ip route $peerIP"
+ action 185 regexp "ip.route.*" "$_cli_result" currentRoutes
+ action 190 if $_regexp_result eq 1
+ action 195  cli command "configure terminal"
+ action 200  foreach currentRoute "$currentRoutes" "\n"
+ action 205   cli command "no $currentRoute"
+ action 210  end
+ action 215  cli command "exit"
+ action 220 end 
+ action 225 cli command "configure terminal"
+ action 230 cli command "ip route $peerIP 255.255.255.255 $ispRoute name EzVPN"
+ action 235 cli command "exit"
+ action 240 syslog msg "Connected (ezVPN): $peerUser@$peerIP -> $ispConnectedIP [$_routing_network]"
+!
+
+no event manager applet ezRouteDel
+event manager applet ezRouteDel 
+ event routing network 172.28.254.0/23 type remove protocol static ge 23
+ action 100 cli command "enable"
+ action 105 cli command "show running-config | include ip route $_routing_lastgateway 255.255.255.255"
+ action 110 regexp "ip.route.*" "$_cli_result" currentRoutes
+ action 120 if $_regexp_result eq 1
+ action 125  cli command "configure terminal"
+ action 130  foreach currentRoute "$currentRoutes" "\n"
+ action 135   cli command "no $currentRoute"
+ action 140  end
+ action 145  cli command "exit"
+ action 150 end 
+ action 155 syslog msg "Disconnected (ezVPN): $_routing_lastgateway"
+!
